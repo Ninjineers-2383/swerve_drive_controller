@@ -20,7 +20,7 @@ generate_parameter_library(
   src/swerve_drive_controller_parameters.yaml
 )
 
-add_library(swerve_drive_controller SHARED src/swerve_drive_controller.cpp)
+add_library(swerve_drive_controller SHARED src/swerve_drive_controller.cpp src/swerve_drive_kinematics.cpp)
 target_include_directories(swerve_drive_controller PRIVATE include)
 target_link_libraries(
   swerve_drive_controller 

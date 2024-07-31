@@ -1,3 +1,5 @@
+#pragma once
+
 #include <limits>
 #include <memory>
 #include <string>
@@ -6,6 +8,8 @@
 #include "controller_interface/controller_interface.hpp"
 #include "realtime_tools/realtime_buffer.h"
 #include "geometry_msgs/msg/twist_stamped.hpp"
+
+#include "swerve_drive_controller/swerve_drive_kinematics.hpp"
 
 #include "swerve_drive_controller_parameters.hpp"
 
@@ -52,5 +56,7 @@ namespace swerve_drive_controller
 
         realtime_tools::RealtimeBuffer<std::shared_ptr<DataType>> rt_buffer_ptr_;
         rclcpp::Subscription<DataType>::SharedPtr velocity_command_subscriber;
+
+        std::unique_ptr<SwerveDriveKinematics> kinematics{nullptr};
     };
 }

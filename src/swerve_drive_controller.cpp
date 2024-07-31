@@ -46,6 +46,15 @@ namespace swerve_drive_controller
                 rt_buffer_ptr_.writeFromNonRT(msg);
             });
 
+        std::vector<Eigen::Translation2d> moduleTranslations{4};
+
+        moduleTranslations[0] = Eigen::Translation2d{0.3175, 0.3175};
+        moduleTranslations[1] = Eigen::Translation2d{0.3175, -0.3175};
+        moduleTranslations[2] = Eigen::Translation2d{-0.3175, 0.3175};
+        moduleTranslations[3] = Eigen::Translation2d{-0.3175, -0.3175};
+
+        kinematics = std::make_unique<SwerveDriveKinematics>(moduleTranslations);
+
         RCLCPP_INFO(this->get_node()->get_logger(), "configure successful");
 
         return controller_interface::CallbackReturn::SUCCESS;
@@ -101,29 +110,19 @@ namespace swerve_drive_controller
         const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
     {
         std::shared_ptr<DataType> last_command_msg = *(rt_buffer_ptr_.readFromRT());
-        if (last_command_msg == nullptr) {
+        if (last_command_msg == nullptr)
+        {
             return controller_interface::return_type::OK;
         }
-        double x = last_command_msg->twist.linear.y;
-        double y = last_command_msg->twist.linear.x;
-        double omega = last_command_msg->twist.angular.z;
 
-        double A = x - (omega * (params_.wheelbase / 2));
-        double B = x + (omega * (params_.wheelbase / 2));
-        double C = y - (omega * (params_.trackwidth / 2));
-        double D = y + (omega * (params_.trackwidth / 2));
+        std::vector<SwerveModuleState> moduleStates = kinematics->to_module_states(last_command_msg->twist);
 
-        registered_wheel_handles[0].wheel.get().set_value(sqrt(B * B + C * C));
-        registered_wheel_handles[0].steer.get().set_value(atan2(B, C));
-        
-        registered_wheel_handles[1].wheel.get().set_value(sqrt(B * B + D * D));
-        registered_wheel_handles[1].steer.get().set_value(atan2(B, D));
-        
-        registered_wheel_handles[2].wheel.get().set_value(sqrt(A * A + D * D));
-        registered_wheel_handles[2].steer.get().set_value(atan2(A, D));
-        
-        registered_wheel_handles[3].wheel.get().set_value(sqrt(A * A + C * C));
-        registered_wheel_handles[3].steer.get().set_value(atan2(A, C));
+        for (size_t i = 0; i < moduleStates.size(); i++)
+        {
+            registered_wheel_handles[i].wheel.get().set_value(moduleStates.at(i).velocity);
+            registered_wheel_handles[i].steer.get().set_value(moduleStates.at(i).angle);
+        }
+
         return controller_interface::return_type::OK;
     }
 
