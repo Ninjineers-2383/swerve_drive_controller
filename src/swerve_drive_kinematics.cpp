@@ -14,8 +14,8 @@ namespace swerve_drive_controller
             0, 1, 0;
         for (size_t i = 0; i < 4; i++)
         {
-            location(0, 2) = -moduleLocations.at(i).x();
-            location(1, 2) = moduleLocations.at(i).y();
+            location(0, 2) = -moduleLocations.at(i).y();
+            location(1, 2) = moduleLocations.at(i).x();
             m_inverseKinematics.block<2, 3>(i * 2, 0) << location;
         }
 
