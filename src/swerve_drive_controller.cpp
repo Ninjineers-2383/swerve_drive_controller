@@ -23,11 +23,17 @@ namespace swerve_drive_controller
         const rclcpp_lifecycle::State & /*previous_state*/)
     {
         params_ = param_listener_->get_params();
-        if (params_.steer_joint_names.size() != params_.wheel_joint_names.size())
+        registered_wheel_handles.reserve(params_.wheel_names.size());
+
+        for (const std::string &name : params_.wheel_names)
         {
-            RCLCPP_ERROR(get_node()->get_logger(), "The number of wheel joints [%zu] and steer joints [%zu] are different",
-                         params_.wheel_joint_names.size(), params_.steer_joint_names.size());
-            return controller_interface::CallbackReturn::ERROR;
+            auto &translation = params_.translations.wheel_names_map.at(name);
+            registered_wheel_handles.push_back(
+                WheelHandle{
+                    name,
+                    Eigen::Translation2d{translation.x, translation.y},
+                    nullptr,
+                    nullptr});
         }
 
         velocity_command_subscriber = get_node()->create_subscription<DataType>(
@@ -46,14 +52,18 @@ namespace swerve_drive_controller
                 rt_buffer_ptr_.writeFromNonRT(msg);
             });
 
-        std::vector<Eigen::Translation2d> moduleTranslations{4};
+        std::vector<Eigen::Translation2d> translations;
+        translations.reserve(registered_wheel_handles.size());
 
-        moduleTranslations[0] = Eigen::Translation2d{0.3175, 0.3175};
-        moduleTranslations[1] = Eigen::Translation2d{0.3175, -0.3175};
-        moduleTranslations[2] = Eigen::Translation2d{-0.3175, 0.3175};
-        moduleTranslations[3] = Eigen::Translation2d{-0.3175, -0.3175};
+        std::transform(
+            registered_wheel_handles.cbegin(), registered_wheel_handles.cend(),
+            std::back_inserter(translations),
+            [](const WheelHandle &handle)
+            {
+                return handle.translation;
+            });
 
-        kinematics = std::make_unique<SwerveDriveKinematics>(moduleTranslations);
+        kinematics = std::make_unique<SwerveDriveKinematics>(translations);
 
         RCLCPP_INFO(this->get_node()->get_logger(), "configure successful");
 
@@ -63,13 +73,10 @@ namespace swerve_drive_controller
     controller_interface::InterfaceConfiguration SwerveDriveController::command_interface_configuration() const
     {
         std::vector<std::string> conf_names;
-        for (const auto &joint_name : params_.steer_joint_names)
+        for (const auto &[wheel, joints] : params_.joints.wheel_names_map)
         {
-            conf_names.push_back(joint_name + "/" + hardware_interface::HW_IF_POSITION);
-        }
-        for (const auto &joint_name : params_.wheel_joint_names)
-        {
-            conf_names.push_back(joint_name + "/" + hardware_interface::HW_IF_VELOCITY);
+            conf_names.push_back(joints.steer + "/" + hardware_interface::HW_IF_POSITION);
+            conf_names.push_back(joints.wheel + "/" + hardware_interface::HW_IF_VELOCITY);
         }
         return {controller_interface::interface_configuration_type::INDIVIDUAL, conf_names};
     }
@@ -86,7 +93,7 @@ namespace swerve_drive_controller
         // reset command buffer if a command came through callback when controller was inactive
         rt_buffer_ptr_ = realtime_tools::RealtimeBuffer<std::shared_ptr<DataType>>(nullptr);
 
-        const auto result = register_wheels(params_.wheel_joint_names, params_.steer_joint_names, registered_wheel_handles);
+        const auto result = register_wheels(params_.joints.wheel_names_map, registered_wheel_handles);
 
         if (result != controller_interface::CallbackReturn::SUCCESS)
         {
@@ -119,25 +126,23 @@ namespace swerve_drive_controller
 
         for (size_t i = 0; i < moduleStates.size(); i++)
         {
-            registered_wheel_handles[i].wheel.get().set_value(moduleStates.at(i).velocity);
-            registered_wheel_handles[i].steer.get().set_value(moduleStates.at(i).angle);
+            registered_wheel_handles[i].wheel->set_value(moduleStates.at(i).velocity);
+            registered_wheel_handles[i].steer->set_value(moduleStates.at(i).angle);
         }
 
         return controller_interface::return_type::OK;
     }
 
     controller_interface::CallbackReturn SwerveDriveController::register_wheels(
-        const std::vector<std::string> &wheel_names,
-        const std::vector<std::string> &steer_names,
+        const std::map<std::string, Params::Joints::MapWheelNames> jointsMap,
         std::vector<WheelHandle> &registered_handles)
     {
         auto logger = get_node()->get_logger();
 
         // register handles
-        registered_handles.reserve(wheel_names.size());
-        for (size_t i = 0; i < wheel_names.size(); i++)
+        for (auto &handle : registered_handles)
         {
-            auto wheel_name = wheel_names[i];
+            auto wheel_name = jointsMap.at(handle.name).wheel;
             auto wheel_handle = std::find_if(
                 command_interfaces_.begin(), command_interfaces_.end(),
                 [&wheel_name](auto &interface)
@@ -152,8 +157,9 @@ namespace swerve_drive_controller
                 return controller_interface::CallbackReturn::ERROR;
             }
 
-            auto steer_name = steer_names[i];
+            handle.wheel = &*wheel_handle;
 
+            auto steer_name = jointsMap.at(handle.name).steer;
             auto steer_handle = std::find_if(
                 command_interfaces_.begin(), command_interfaces_.end(),
                 [&steer_name](auto &interface)
@@ -168,8 +174,7 @@ namespace swerve_drive_controller
                 return controller_interface::CallbackReturn::ERROR;
             }
 
-            registered_handles.emplace_back(
-                WheelHandle{std::ref(*wheel_handle), std::ref(*steer_handle)});
+            handle.steer = &*steer_handle;
         }
 
         return controller_interface::CallbackReturn::SUCCESS;

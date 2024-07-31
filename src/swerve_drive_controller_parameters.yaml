@@ -1,21 +1,21 @@
 swerve_drive_controller:
-  wheel_joint_names:
+  wheel_names:
     type: string_array
-    default_value: []
-    description: "Names of the wheel joints"
+    description: "Names of the wheesl for logging and configuration"
     validation:
       not_empty<>: null
       unique<>: null
-  steer_joint_names:
-    type: string_array
-    default_value: []
-    description: "Names of the steering joints"
-    validation:
-      not_empty<>: null
-      unique<>: null
-  trackwidth:
-    type: double
-    description: "Distable between the left and right wheels in a standard 4 wheel drive configuration"
-  wheelbase:
-    type: double
-    description: "distance between front and back wheels in a standard 4 wheel drive configuration"
+
+  joints:
+    __map_wheel_names:
+      steer:
+        type: string
+      wheel:
+        type: string
+
+  translations:
+    __map_wheel_names:
+      x:
+        type: double
+      y:
+        type: double

@@ -40,13 +40,14 @@ namespace swerve_drive_controller
     protected:
         struct WheelHandle
         {
-            std::reference_wrapper<hardware_interface::LoanedCommandInterface> wheel;
-            std::reference_wrapper<hardware_interface::LoanedCommandInterface> steer;
+            std::string name;
+            Eigen::Translation2d translation;
+            hardware_interface::LoanedCommandInterface *wheel;
+            hardware_interface::LoanedCommandInterface *steer;
         };
 
         controller_interface::CallbackReturn register_wheels(
-            const std::vector<std::string> &wheel_names,
-            const std::vector<std::string> &steer_names,
+            const std::map<std::string, Params::Joints::MapWheelNames> jointsMap,
             std::vector<WheelHandle> &registered_handles);
 
         std::vector<WheelHandle> registered_wheel_handles;
