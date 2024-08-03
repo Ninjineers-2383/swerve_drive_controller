@@ -11,13 +11,19 @@ namespace swerve_drive_controller
         double angle;
     };
 
+    struct SwerveModulePosition
+    {
+        double distance;
+        double angle;
+    };
+
     class SwerveDriveKinematics
     {
     public:
         explicit SwerveDriveKinematics(const std::vector<Eigen::Translation2d> moduleLocations);
 
         std::vector<SwerveModuleState> to_module_states(geometry_msgs::msg::Twist chassisSpeeds);
-        geometry_msgs::msg::Twist to_chassis_speeds(std::vector<SwerveModuleState> moduleStates);
+        geometry_msgs::msg::Twist to_twist(std::vector<SwerveModulePosition> moduleDeltas);
 
     protected:
         std::vector<Eigen::Translation2d> moduleLocations;

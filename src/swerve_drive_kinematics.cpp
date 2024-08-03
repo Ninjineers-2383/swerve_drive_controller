@@ -39,7 +39,27 @@ namespace swerve_drive_controller
         return moduleStates;
     }
 
-    geometry_msgs::msg::Twist SwerveDriveKinematics::to_chassis_speeds(std::vector<SwerveModuleState> moduleStates)
+    geometry_msgs::msg::Twist SwerveDriveKinematics::to_twist(std::vector<SwerveModulePosition> moduleDeltas)
     {
+        auto moduleDeltaMatrix = Eigen::MatrixXd{};
+        moduleDeltaMatrix.resize(moduleDeltas.size() * 2, 1);
+
+        for (size_t i = 0; i < moduleDeltas.size(); i++)
+        {
+            moduleDeltaMatrix(i * 2, 0) = moduleDeltas[i].distance * cos(moduleDeltas[i].angle);
+            moduleDeltaMatrix(i * 2 + 1, 0) = moduleDeltas[i].distance * sin(moduleDeltas[i].angle);
+        }
+
+        auto chassisForwardVector = m_forwardKinematics.solve(moduleDeltaMatrix);
+
+        auto twist = geometry_msgs::msg::Twist{};
+        twist.linear.x = chassisForwardVector(0, 0);
+        twist.linear.y = chassisForwardVector(1, 0);
+        twist.linear.z = 0;
+        twist.angular.x = 0;
+        twist.angular.y = 0;
+        twist.angular.z = chassisForwardVector(2, 0);
+
+        return twist;
     }
 }

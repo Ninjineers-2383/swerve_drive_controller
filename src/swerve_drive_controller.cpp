@@ -1,6 +1,7 @@
 #include "swerve_drive_controller/swerve_drive_controller.hpp"
 
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
+#include "tf2/LinearMath/Quaternion.h"
 
 namespace swerve_drive_controller
 {
@@ -33,6 +34,9 @@ namespace swerve_drive_controller
                     name,
                     Eigen::Translation2d{translation.x, translation.y},
                     nullptr,
+                    nullptr,
+                    nullptr,
+                    nullptr,
                     nullptr});
         }
 
@@ -63,7 +67,14 @@ namespace swerve_drive_controller
                 return handle.translation;
             });
 
-        kinematics = std::make_unique<SwerveDriveKinematics>(translations);
+        kinematics = std::make_shared<SwerveDriveKinematics>(translations);
+
+        odometry = std::make_unique<SwerveDriveOdometry>(kinematics);
+
+        odometry->configure(get_node(),
+                            params_.odom_frame_id, params_.base_frame_id,
+                            params_.pose_covariance_diagonal,
+                            params_.twist_covariance_diagonal);
 
         RCLCPP_INFO(this->get_node()->get_logger(), "configure successful");
 
@@ -83,8 +94,14 @@ namespace swerve_drive_controller
 
     controller_interface::InterfaceConfiguration SwerveDriveController::state_interface_configuration() const
     {
-        return controller_interface::InterfaceConfiguration{
-            controller_interface::interface_configuration_type::NONE};
+        std::vector<std::string> conf_names;
+        for (const auto &[wheel, joints] : params_.joints.wheel_names_map)
+        {
+            conf_names.push_back(joints.steer + "/" + hardware_interface::HW_IF_POSITION);
+            conf_names.push_back(joints.wheel + "/" + hardware_interface::HW_IF_POSITION);
+            conf_names.push_back(joints.wheel + "/" + hardware_interface::HW_IF_VELOCITY);
+        }
+        return {controller_interface::interface_configuration_type::INDIVIDUAL, conf_names};
     }
 
     controller_interface::CallbackReturn SwerveDriveController::on_activate(
@@ -101,6 +118,10 @@ namespace swerve_drive_controller
             return result;
         }
 
+        auto modulePositions = getModulePositions(registered_wheel_handles);
+
+        odometry->setInitialModulePosition(modulePositions);
+
         RCLCPP_INFO(this->get_node()->get_logger(), "activate successful");
 
         return controller_interface::CallbackReturn::SUCCESS;
@@ -114,7 +135,7 @@ namespace swerve_drive_controller
     }
 
     controller_interface::return_type SwerveDriveController::update(
-        const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
+        const rclcpp::Time &time, const rclcpp::Duration & /*period*/)
     {
         std::shared_ptr<DataType> last_command_msg = *(rt_buffer_ptr_.readFromRT());
         if (last_command_msg == nullptr)
@@ -130,6 +151,10 @@ namespace swerve_drive_controller
             registered_wheel_handles[i].steer->set_value(moduleStates.at(i).angle);
         }
 
+        odometry->update(getModulePositions(registered_wheel_handles));
+
+        odometry->publish(time);
+
         return controller_interface::return_type::OK;
     }
 
@@ -142,42 +167,125 @@ namespace swerve_drive_controller
         // register handles
         for (auto &handle : registered_handles)
         {
-            auto wheel_name = jointsMap.at(handle.name).wheel;
-            auto wheel_handle = std::find_if(
-                command_interfaces_.begin(), command_interfaces_.end(),
-                [&wheel_name](auto &interface)
-                {
-                    return interface.get_prefix_name() == wheel_name &&
-                           interface.get_interface_name() == hardware_interface::HW_IF_VELOCITY;
-                });
+            const auto &steer_joint = jointsMap.at(handle.name).steer;
+            const auto &wheel_joint = jointsMap.at(handle.name).wheel;
 
-            if (wheel_handle == command_interfaces_.cend())
+            bool success = true;
+
+            success &=
+                registerCommandInterface(handle.steer, command_interfaces_, steer_joint, hardware_interface::HW_IF_POSITION, get_node()->get_logger());
+            success &=
+                registerCommandInterface(handle.wheel, command_interfaces_, wheel_joint, hardware_interface::HW_IF_VELOCITY, get_node()->get_logger());
+
+            success &=
+                registerStateInterface(handle.steerFeedbackPosition, state_interfaces_, steer_joint, hardware_interface::HW_IF_POSITION, get_node()->get_logger());
+            success &=
+                registerStateInterface(handle.wheelFeedbackPosition, state_interfaces_, wheel_joint, hardware_interface::HW_IF_POSITION, get_node()->get_logger());
+            success &=
+                registerStateInterface(handle.wheelFeedbackVelocity, state_interfaces_, wheel_joint, hardware_interface::HW_IF_VELOCITY, get_node()->get_logger());
+
+            if (!success)
             {
-                RCLCPP_ERROR(logger, "Unable to obtain joint command handle for %s", wheel_name.c_str());
                 return controller_interface::CallbackReturn::ERROR;
             }
 
-            handle.wheel = &*wheel_handle;
+            // auto wheel_name = jointsMap.at(handle.name).wheel;
+            // auto wheel_handle = std::find_if(
+            //     command_interfaces_.begin(), command_interfaces_.end(),
+            //     [&wheel_name](auto &interface)
+            //     {
+            //         return interface.get_prefix_name() == wheel_name &&
+            //                interface.get_interface_name() == hardware_interface::HW_IF_VELOCITY;
+            //     });
 
-            auto steer_name = jointsMap.at(handle.name).steer;
-            auto steer_handle = std::find_if(
-                command_interfaces_.begin(), command_interfaces_.end(),
-                [&steer_name](auto &interface)
-                {
-                    return interface.get_prefix_name() == steer_name &&
-                           interface.get_interface_name() == hardware_interface::HW_IF_POSITION;
-                });
+            // if (wheel_handle == command_interfaces_.cend())
+            // {
+            //     RCLCPP_ERROR(logger, "Unable to obtain joint command handle for %s", wheel_name.c_str());
+            //     return controller_interface::CallbackReturn::ERROR;
+            // }
 
-            if (steer_handle == command_interfaces_.end())
-            {
-                RCLCPP_ERROR(logger, "Unable to obtain joint command handle for %s", steer_name.c_str());
-                return controller_interface::CallbackReturn::ERROR;
-            }
+            // handle.wheel = &*wheel_handle;
 
-            handle.steer = &*steer_handle;
+            // auto steer_name = jointsMap.at(handle.name).steer;
+            // auto steer_handle = std::find_if(
+            //     command_interfaces_.begin(), command_interfaces_.end(),
+            //     [&steer_name](auto &interface)
+            //     {
+            //         return interface.get_prefix_name() == steer_name &&
+            //                interface.get_interface_name() == hardware_interface::HW_IF_POSITION;
+            //     });
+
+            // if (steer_handle == command_interfaces_.end())
+            // {
+            //     RCLCPP_ERROR(logger, "Unable to obtain joint command handle for %s", steer_name.c_str());
+            //     return controller_interface::CallbackReturn::ERROR;
+            // }
+
+            // handle.steer = &*steer_handle;
         }
 
         return controller_interface::CallbackReturn::SUCCESS;
+    }
+
+    bool SwerveDriveController::registerCommandInterface(
+        hardware_interface::LoanedCommandInterface *&handle, std::vector<hardware_interface::LoanedCommandInterface> &interfaces,
+        std::string joint_name, std::string interface_name,
+        const rclcpp::Logger &logger)
+    {
+        auto interface = std::find_if(
+            interfaces.begin(), interfaces.end(),
+            [&joint_name, &interface_name](hardware_interface::LoanedCommandInterface &interface)
+            {
+                return interface.get_prefix_name() == joint_name &&
+                       interface.get_interface_name() == interface_name;
+            });
+
+        if (interface == interfaces.end())
+        {
+            RCLCPP_ERROR(logger, "Unable to obtain %s command handle for %s", interface_name.c_str(), joint_name.c_str());
+            return false;
+        }
+
+        handle = &*interface;
+        return true;
+    }
+
+    bool SwerveDriveController::registerStateInterface(
+        const hardware_interface::LoanedStateInterface *&handle, std::vector<hardware_interface::LoanedStateInterface> &interfaces,
+        std::string joint_name, std::string interface_name,
+        const rclcpp::Logger &logger)
+    {
+        auto interface = std::find_if(
+            interfaces.cbegin(), interfaces.cend(),
+            [&joint_name, &interface_name](const hardware_interface::LoanedStateInterface &interface)
+            {
+                return interface.get_prefix_name() == joint_name &&
+                       interface.get_interface_name() == interface_name;
+            });
+
+        if (interface == interfaces.cend())
+        {
+            RCLCPP_ERROR(logger, "Unable to obtain %s command handle for %s", interface_name.c_str(), joint_name.c_str());
+            return false;
+        }
+
+        handle = &*interface;
+        return true;
+    }
+
+    std::vector<SwerveModulePosition> SwerveDriveController::getModulePositions(std::vector<WheelHandle> wheelHandles)
+    {
+        std::vector<SwerveModulePosition> modulePositions;
+        modulePositions.reserve(wheelHandles.size());
+
+        for (const auto &handle : wheelHandles)
+        {
+            modulePositions.emplace_back(SwerveModulePosition{
+                handle.wheelFeedbackPosition->get_value(),
+                handle.steerFeedbackPosition->get_value()});
+        }
+
+        return modulePositions;
     }
 }
 

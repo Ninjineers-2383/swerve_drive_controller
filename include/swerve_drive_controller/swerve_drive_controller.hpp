@@ -10,6 +10,7 @@
 #include "geometry_msgs/msg/twist_stamped.hpp"
 
 #include "swerve_drive_controller/swerve_drive_kinematics.hpp"
+#include "swerve_drive_controller/swerve_drive_odometry.hpp"
 
 #include "swerve_drive_controller_parameters.hpp"
 
@@ -43,12 +44,26 @@ namespace swerve_drive_controller
             std::string name;
             Eigen::Translation2d translation;
             hardware_interface::LoanedCommandInterface *wheel;
+            const hardware_interface::LoanedStateInterface *wheelFeedbackPosition;
+            const hardware_interface::LoanedStateInterface *wheelFeedbackVelocity;
             hardware_interface::LoanedCommandInterface *steer;
+            const hardware_interface::LoanedStateInterface *steerFeedbackPosition;
         };
 
         controller_interface::CallbackReturn register_wheels(
             const std::map<std::string, Params::Joints::MapWheelNames> jointsMap,
             std::vector<WheelHandle> &registered_handles);
+
+        std::vector<SwerveModulePosition> getModulePositions(std::vector<WheelHandle> wheelHandles);
+
+        bool registerCommandInterface(
+            hardware_interface::LoanedCommandInterface *&handle, std::vector<hardware_interface::LoanedCommandInterface> &interfaces,
+            std::string joint_name, std::string interface_name,
+            const rclcpp::Logger &logger);
+        bool registerStateInterface(
+            const hardware_interface::LoanedStateInterface *&handle, std::vector<hardware_interface::LoanedStateInterface> &interfaces,
+            std::string joint_name, std::string interface_name,
+            const rclcpp::Logger &logger);
 
         std::vector<WheelHandle> registered_wheel_handles;
 
@@ -58,6 +73,7 @@ namespace swerve_drive_controller
         realtime_tools::RealtimeBuffer<std::shared_ptr<DataType>> rt_buffer_ptr_;
         rclcpp::Subscription<DataType>::SharedPtr velocity_command_subscriber;
 
-        std::unique_ptr<SwerveDriveKinematics> kinematics{nullptr};
+        std::shared_ptr<SwerveDriveKinematics> kinematics;
+        std::unique_ptr<SwerveDriveOdometry> odometry{nullptr};
     };
 }
