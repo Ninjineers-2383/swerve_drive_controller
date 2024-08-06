@@ -140,7 +140,7 @@ namespace swerve_drive_controller
         std::shared_ptr<DataType> last_command_msg = *(rt_buffer_ptr_.readFromRT());
         if (last_command_msg == nullptr)
         {
-            return controller_interface::return_type::OK;
+            last_command_msg = std::make_shared<DataType>(rosidl_runtime_cpp::MessageInitialization::ZERO);
         }
 
         std::vector<SwerveModuleState> moduleStates = kinematics->to_module_states(last_command_msg->twist);
@@ -281,7 +281,7 @@ namespace swerve_drive_controller
         for (const auto &handle : wheelHandles)
         {
             modulePositions.emplace_back(SwerveModulePosition{
-                handle.wheelFeedbackPosition->get_value(),
+                handle.wheelFeedbackPosition->get_value() * (1.0 / 2.0 * M_PI) * (0.005 * 2 * M_PI),
                 handle.steerFeedbackPosition->get_value()});
         }
 

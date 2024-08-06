@@ -12,6 +12,7 @@
 #include "tf2_msgs/msg/tf_message.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include <rsl/static_vector.hpp>
+#include <manif/manif.h>
 
 #include "swerve_drive_controller/swerve_drive_kinematics.hpp"
 
@@ -51,13 +52,9 @@ namespace swerve_drive_controller
         std::shared_ptr<realtime_tools::RealtimePublisher<tf2_msgs::msg::TFMessage>>
             realtime_odometry_transform_publisher_ = nullptr;
 
-        void exp(geometry_msgs::msg::Twist twist);
+        manif::SE2d pose;
 
-        double x_;
-        double y_;
-        double heading_;
-        geometry_msgs::msg::Twist twist_;
-
-        std::vector<SwerveModulePosition> previousModulePositions_;
+        std::vector<SwerveModulePosition> previous_module_positions_;
+        geometry_msgs::msg::Twist previous_twist_;
     };
 }

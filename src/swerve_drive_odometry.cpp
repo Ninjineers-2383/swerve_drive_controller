@@ -5,7 +5,7 @@
 namespace swerve_drive_controller
 {
     SwerveDriveOdometry::SwerveDriveOdometry(std::shared_ptr<SwerveDriveKinematics> kinematics)
-        : kinematics_{kinematics}
+        : kinematics_{kinematics}, pose{manif::SE2d::Identity()}
     {
     }
 
@@ -51,12 +51,12 @@ namespace swerve_drive_controller
 
     void SwerveDriveOdometry::setInitialModulePosition(std::vector<SwerveModulePosition> initialModulePosition)
     {
-        previousModulePositions_.clear();
-        previousModulePositions_.reserve(initialModulePosition.size());
+        previous_module_positions_.clear();
+        previous_module_positions_.reserve(initialModulePosition.size());
 
         for (auto &modulePosition : initialModulePosition)
         {
-            previousModulePositions_.emplace_back(modulePosition);
+            previous_module_positions_.emplace_back(modulePosition);
         }
     }
 
@@ -67,13 +67,18 @@ namespace swerve_drive_controller
         for (size_t i = 0; i < newModulePositions.size(); i++)
         {
             moduleDiffs.emplace_back(SwerveModulePosition{
-                previousModulePositions_[i].distance - newModulePositions[i].distance,
-                previousModulePositions_[i].angle - newModulePositions[i].angle});
+                previous_module_positions_[i].distance - newModulePositions[i].distance,
+                newModulePositions[i].angle});
         }
+        previous_module_positions_ = newModulePositions;
         auto twist = kinematics_->to_twist(moduleDiffs);
-        x_ += twist.linear.x * 1.0 / 30.0;
-        y_ += twist.linear.y * 1.0 / 30.0;
-        heading_ += twist.angular.z * 1.0 / 30.0;
+        previous_twist_ = twist; // TODO!: This is definitely wrong, needs to be scaled by the period
+        manif::SE2Tangent<double> manif_twist;
+        Eigen::Vector<double, 3> twist_vector;
+        twist_vector << -twist.linear.x, -twist.linear.y, -twist.angular.z;
+        RCLCPP_INFO_STREAM(rclcpp::get_logger("SwerveDriveOdometry"), "" << twist_vector);
+        manif_twist = twist_vector;
+        pose += manif_twist;
     }
 
     bool SwerveDriveOdometry::publish(const rclcpp::Time &time)
@@ -107,6 +112,7 @@ namespace swerve_drive_controller
         if (realtime_odometry_transform_publisher_->trylock())
         {
             auto &odometry_message = realtime_odometry_transform_publisher_->msg_;
+            odometry_message.transforms.front().header.stamp = time;
             odometry_message.transforms.front().transform.translation.x = getX();
             odometry_message.transforms.front().transform.translation.y = getY();
             odometry_message.transforms.front().transform.rotation.x = orientation.x();
@@ -124,47 +130,24 @@ namespace swerve_drive_controller
         return success;
     }
 
-    void SwerveDriveOdometry::exp(geometry_msgs::msg::Twist twist)
-    {
-        double dx = twist.linear.x;
-        double dy = twist.linear.y;
-        double dtheta = twist.angular.z;
-
-        double sinTheta = sin(dtheta);
-        double cosTheta = cos(dtheta);
-
-        double s{};
-        double c{};
-        if (abs(dtheta) < 1E-9)
-        {
-            s = 1.0 - 1.0 / 6.0 * dtheta * dtheta;
-            c = 0.5 * dtheta;
-        }
-        else
-        {
-            s = sinTheta / dtheta;
-            c = (1 - cosTheta) / dtheta;
-        }
-    }
-
     double SwerveDriveOdometry::getX()
     {
-        return x_;
+        return pose.x();
     }
 
     double SwerveDriveOdometry::getY()
     {
-        return y_;
+        return pose.y();
     }
 
     double SwerveDriveOdometry::getHeading()
     {
-        return heading_;
+        return pose.angle();
     }
 
     geometry_msgs::msg::Twist SwerveDriveOdometry::getTwist()
     {
-        return twist_;
+        return previous_twist_;
     }
 
 } // namespace swerve_drive_controller
