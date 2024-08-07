@@ -76,7 +76,6 @@ namespace swerve_drive_controller
         manif::SE2Tangent<double> manif_twist;
         Eigen::Vector<double, 3> twist_vector;
         twist_vector << -twist.linear.x, -twist.linear.y, -twist.angular.z;
-        RCLCPP_INFO_STREAM(rclcpp::get_logger("SwerveDriveOdometry"), "" << twist_vector);
         manif_twist = twist_vector;
         pose += manif_twist;
     }
