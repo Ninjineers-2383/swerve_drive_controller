@@ -20,6 +20,12 @@ swerve_drive_controller:
       y:
         type: double
 
+  absolute_offsets:
+    __map_wheel_names:
+      offset:
+        type: double
+        description: "Offset of the wheel encoder from forward direction"
+
   odom_frame_id:
     type: string
     default_value: "odom"

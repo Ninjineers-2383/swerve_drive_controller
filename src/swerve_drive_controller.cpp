@@ -142,13 +142,31 @@ namespace swerve_drive_controller
         {
             last_command_msg = std::make_shared<DataType>(rosidl_runtime_cpp::MessageInitialization::ZERO);
         }
+        std::vector<SwerveModuleState> moduleStates;
+        if (abs(last_command_msg->twist.linear.x) + abs(last_command_msg->twist.linear.y) + abs(last_command_msg->twist.angular.z) > 0.001)
+        {
+            moduleStates = kinematics->to_module_states(last_command_msg->twist);
+        }
+        else
+        {
+            moduleStates.reserve(registered_wheel_handles.size());
+            for (auto &handle : registered_wheel_handles)
+            {
+                moduleStates.emplace_back(SwerveModuleState{0, handle.steerFeedbackPosition->get_value() - params_.absolute_offsets.wheel_names_map[handle.name].offset});
+            }
+        }
 
-        std::vector<SwerveModuleState> moduleStates = kinematics->to_module_states(last_command_msg->twist);
+        // Check for new parameters
+        if (param_listener_->is_old(params_))
+        {
+            RCLCPP_INFO(get_node()->get_logger(), "Parameters changed, updating");
+            params_ = param_listener_->get_params();
+        }
 
         for (size_t i = 0; i < moduleStates.size(); i++)
         {
-            registered_wheel_handles[i].wheel->set_value(moduleStates.at(i).velocity);
-            registered_wheel_handles[i].steer->set_value(moduleStates.at(i).angle);
+            registered_wheel_handles[i].wheel->set_value(moduleStates.at(i).velocity / ((1.0 / 2.0 * M_PI) * (0.005 * 2 * M_PI)));
+            registered_wheel_handles[i].steer->set_value(moduleStates.at(i).angle + params_.absolute_offsets.wheel_names_map[registered_wheel_handles[i].name].offset);
         }
 
         odometry->update(getModulePositions(registered_wheel_handles));
@@ -282,7 +300,7 @@ namespace swerve_drive_controller
         {
             modulePositions.emplace_back(SwerveModulePosition{
                 handle.wheelFeedbackPosition->get_value() * (1.0 / 2.0 * M_PI) * (0.005 * 2 * M_PI),
-                handle.steerFeedbackPosition->get_value()});
+                handle.steerFeedbackPosition->get_value() - params_.absolute_offsets.wheel_names_map[handle.name].offset});
         }
 
         return modulePositions;
